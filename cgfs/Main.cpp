@@ -19,6 +19,7 @@ typedef struct {
 	Vec3d center;
 	float radius;
 	Color color;
+	float specular;
 } Sphere;
 
 enum LightType {
@@ -73,10 +74,10 @@ static Vec3d IntersectRaySphere(Vec3d origin, Vec3d direction, Sphere sphere) {
 }
 
 static Sphere spheres[] = {
-	{{0, -1, 3}, 1, {255, 0, 0}},
-	{{2, 0, 4}, 1, {0, 0, 255}},
-	{{-2, 0,4}, 1, {0, 255, 0}},
-	{{0, -5001, 0}, 5000, {255, 255, 0}}
+	{{0, -1, 3}, 1, {255, 0, 0}, 500},
+	{{2, 0, 4}, 1, {0, 0, 255}, 500},
+	{{-2, 0,4}, 1, {0, 255, 0}, 10},
+	{{0, -5001, 0}, 5000, {255, 255, 0}, 1000}
 };
 
 static Light lights[] = {
@@ -113,9 +114,10 @@ static float Length(Vec3d vec) {
 	return sqrt(DotProduct(vec, vec));
 }
 
-static double ComputeLighting(Vec3d point, Vec3d normal) {
+static double ComputeLighting(Vec3d point, Vec3d normal, Vec3d view, float specular) {
 	double intensity = 0;
 	float length_n = Length(normal);
+	float length_v = Length(view);
 
 	for (int i = 0; i < sizeof(lights) / sizeof(lights[0]); i++) {
 		Light light = lights[i];
@@ -136,6 +138,14 @@ static double ComputeLighting(Vec3d point, Vec3d normal) {
 			float n_dot_l = DotProduct(normal, vec_l);
 			if (n_dot_l > 0) {
 				intensity += light.intensity * n_dot_l / (length_n * Length(vec_l));
+			}
+
+			if (specular != -1) {
+				Vec3d vec_r = Subtract(Multiply(2.0 * DotProduct(normal, vec_l), normal), vec_l);
+				float r_dot_v = DotProduct(vec_r, view);
+				if (r_dot_v > 0) {
+					intensity += light.intensity * pow(r_dot_v / (Length(vec_r) * length_v), specular);
+				}
 			}
 		}
 	}
@@ -170,7 +180,9 @@ static Color TraceRay(Vec3d origin, Vec3d direction, float min_t, float max_t) {
 	Vec3d normal = Subtract(point, closest_sphere->center);
 	normal = Multiply(1.0 / Length(normal), normal);
 
-	return Multiply(ComputeLighting(point, normal), closest_sphere->color);
+	Vec3d view = Multiply(-1, direction);
+	double lighting = ComputeLighting(point, normal, view, closest_sphere->specular);
+	return Multiply(lighting, closest_sphere->color);
 }
 
 static void PutPixel(SDL_Renderer* renderer, int x, int y, Color c) {
