@@ -21,6 +21,16 @@ typedef struct {
 	Color color;
 } Sphere;
 
+enum LightType {
+	Ambient, Point, Directional
+};
+
+typedef struct {
+	LightType type;
+	float intensity;
+	Vec3d position;
+} Light;
+
 static int WIDTH = 600;
 static int HEIGHT = 600;
 
@@ -29,6 +39,10 @@ static float PROJECTION_PLANE_Z = 1;
 
 static float DotProduct(Vec3d v1, Vec3d v2) {
 	return v1.x * v2.x + v1.y * v2.y + v1.z * v2.z;
+}
+
+static Vec3d Add(Vec3d v1, Vec3d v2) {
+	return Vec3d{ v1.x + v2.x, v1.y + v2.y, v1.z + v2.z };
 }
 
 static Vec3d Subtract(Vec3d v1, Vec3d v2) {
@@ -62,7 +76,72 @@ static Sphere spheres[] = {
 	{{0, -1, 3}, 1, {255, 0, 0}},
 	{{2, 0, 4}, 1, {0, 0, 255}},
 	{{-2, 0,4}, 1, {0, 255, 0}},
+	{{0, -5001, 0}, 5000, {255, 255, 0}}
 };
+
+static Light lights[] = {
+	{Ambient, 0.2f, {0,0,0}},
+	{Point, 0.6f, {2, 1, 0}},
+	{Directional, 0.2f, {1, 4, 4}}
+};
+
+static Vec3d Multiply(float k, Vec3d vec) {
+	return Vec3d{ k * vec.x, k * vec.y, k * vec.z };
+}
+
+static Color Multiply(float k, Color col) {
+	return Color{ (int)(k * col.r), (int)(k * col.g), (int)(k * col.b) };
+}
+
+static int min(int a, int b) {
+	return a < b ? a : b;
+}
+
+static int max(int a, int b) {
+	return a > b ? a : b;
+}
+
+static Color Clamp(Color c) {
+	return Color{
+		min(255, max(0, c.r)),
+		min(255, max(0, c.g)),
+		min(255, max(0, c.b)),
+	};
+}
+
+static float Length(Vec3d vec) {
+	return sqrt(DotProduct(vec, vec));
+}
+
+static double ComputeLighting(Vec3d point, Vec3d normal) {
+	double intensity = 0;
+	float length_n = Length(normal);
+
+	for (int i = 0; i < sizeof(lights) / sizeof(lights[0]); i++) {
+		Light light = lights[i];
+
+
+		if (light.type == Ambient) {
+			intensity += light.intensity;
+		}
+		else {
+			Vec3d vec_l;
+
+			if (light.type == Point) {
+				vec_l = Subtract(light.position, point);
+			}
+			else {
+				vec_l = light.position;
+			}
+			float n_dot_l = DotProduct(normal, vec_l);
+			if (n_dot_l > 0) {
+				intensity += light.intensity * n_dot_l / (length_n * Length(vec_l));
+			}
+		}
+	}
+
+	return intensity;
+}
 
 static Color TraceRay(Vec3d origin, Vec3d direction, float min_t, float max_t) {
 	float closest_t = INFINITY;
@@ -77,7 +156,7 @@ static Color TraceRay(Vec3d origin, Vec3d direction, float min_t, float max_t) {
 			closest_sphere = &spheres[i];
 		}
 
-		if (ts.y < closest_t && min_t < ts.y && ts.y < min_t) {
+		if (ts.y < closest_t && min_t < ts.y && ts.y < max_t) {
 			closest_t = ts.y;
 			closest_sphere = &spheres[i];
 		}
@@ -87,10 +166,14 @@ static Color TraceRay(Vec3d origin, Vec3d direction, float min_t, float max_t) {
 		return Color{ 255, 255, 255 };
 	}
 
-	return closest_sphere->color;
+	Vec3d point = Add(origin, Multiply(closest_t, direction));
+	Vec3d normal = Subtract(point, closest_sphere->center);
+	normal = Multiply(1.0 / Length(normal), normal);
+
+	return Multiply(ComputeLighting(point, normal), closest_sphere->color);
 }
 
-static void PutPixel(SDL_Renderer* renderer, int x, int y, int r, int g, int b) {
+static void PutPixel(SDL_Renderer* renderer, int x, int y, Color c) {
 	x = WIDTH / 2 + x;
 	y = HEIGHT / 2 - y - 1;
 
@@ -98,7 +181,7 @@ static void PutPixel(SDL_Renderer* renderer, int x, int y, int r, int g, int b) 
 		return;
 	}
 
-	SDL_SetRenderDrawColor(renderer, r, g, b, 255);
+	SDL_SetRenderDrawColor(renderer, c.r, c.g, c.b, 255);
 	SDL_RenderDrawPoint(renderer, x, y);
 }
 
@@ -125,8 +208,8 @@ extern C_LINKAGE int SDL_main(int argc, char* argv[]) {
 	for (int x = -WIDTH / 2; x < WIDTH / 2; x++) {
 		for (int y = -HEIGHT / 2; y < HEIGHT / 2; y++) {
 			Vec3d direction = CanvasToViewport(x, y);
-			Color color = TraceRay(camera_position, direction, 1, INFINITY);
-			PutPixel(renderer, x, y, color.r, color.g, color.b);
+			Color color = Clamp(TraceRay(camera_position, direction, 1, INFINITY));
+			PutPixel(renderer, x, y, color);
 		}
 	}
 
