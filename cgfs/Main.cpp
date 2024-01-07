@@ -1,7 +1,29 @@
+/*
+   Copyright 2024 David Page
+
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at
+
+	   http://www.apache.org/licenses/LICENSE-2.0
+
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License.
+*/
+
 #define SDL_MAIN_HANDLED
 
 #include <stdlib.h>
 #include <SDL.h>
+
+static int WIDTH = 600;
+static int HEIGHT = 600;
+
+static float VIEWPORT_SIZE = 1;
+static float PROJECTION_PLANE_Z = 1;
 
 typedef struct {
 	int r;
@@ -32,12 +54,6 @@ typedef struct {
 	Vec3d position;
 } Light;
 
-static int WIDTH = 600;
-static int HEIGHT = 600;
-
-static float VIEWPORT_SIZE = 1;
-static float PROJECTION_PLANE_Z = 1;
-
 static float DotProduct(Vec3d v1, Vec3d v2) {
 	return v1.x * v2.x + v1.y * v2.y + v1.z * v2.z;
 }
@@ -49,42 +65,6 @@ static Vec3d Add(Vec3d v1, Vec3d v2) {
 static Vec3d Subtract(Vec3d v1, Vec3d v2) {
 	return Vec3d{ v1.x - v2.x, v1.y - v2.y, v1.z - v2.z };
 }
-
-static Vec3d CanvasToViewport(int x, int y) {
-	return Vec3d{ x * VIEWPORT_SIZE / WIDTH, y * VIEWPORT_SIZE / HEIGHT,  PROJECTION_PLANE_Z };
-}
-
-static Vec3d IntersectRaySphere(Vec3d origin, Vec3d direction, Sphere sphere) {
-	Vec3d oc = Subtract(origin, sphere.center);
-
-	float k1 = DotProduct(direction, direction);
-	float k2 = 2 * DotProduct(oc, direction);
-	float k3 = DotProduct(oc, oc) - sphere.radius * sphere.radius;
-
-	float discriminant = k2 * k2 - 4 * k1 * k3;
-
-	if (discriminant < 0) {
-		return Vec3d{ INFINITY, INFINITY, INFINITY };
-	}
-
-	float t1 = (float)(-k2 + sqrt(discriminant)) / (2 * k1);
-	float t2 = (float)(-k2 - sqrt(discriminant)) / (2 * k1);
-
-	return Vec3d{ t1, t2, 0 };
-}
-
-static Sphere spheres[] = {
-	{{0, -1, 3}, 1, {255, 0, 0}, 500},
-	{{2, 0, 4}, 1, {0, 0, 255}, 500},
-	{{-2, 0,4}, 1, {0, 255, 0}, 10},
-	{{0, -5001, 0}, 5000, {255, 255, 0}, 1000}
-};
-
-static Light lights[] = {
-	{Ambient, 0.2f, {0,0,0}},
-	{Point, 0.6f, {2, 1, 0}},
-	{Directional, 0.2f, {1, 4, 4}}
-};
 
 static Vec3d Multiply(float k, Vec3d vec) {
 	return Vec3d{ k * vec.x, k * vec.y, k * vec.z };
@@ -111,11 +91,47 @@ static Color Clamp(Color c) {
 }
 
 static float Length(Vec3d vec) {
-	return sqrt(DotProduct(vec, vec));
+	return (float)sqrt(DotProduct(vec, vec));
 }
 
-static double ComputeLighting(Vec3d point, Vec3d normal, Vec3d view, float specular) {
-	double intensity = 0;
+static Vec3d CanvasToViewport(int x, int y) {
+	return Vec3d{ x * VIEWPORT_SIZE / WIDTH, y * VIEWPORT_SIZE / HEIGHT,  PROJECTION_PLANE_Z };
+}
+
+static Sphere spheres[] = {
+	{{0, -1, 3}, 1, {255, 0, 0}, 500},
+	{{2, 0, 4}, 1, {0, 0, 255}, 500},
+	{{-2, 0,4}, 1, {0, 255, 0}, 10},
+	{{0, -5001, 0}, 5000, {255, 255, 0}, 1000}
+};
+
+static Light lights[] = {
+	{Ambient, 0.2f, {0,0,0}},
+	{Point, 0.6f, {2, 1, 0}},
+	{Directional, 0.2f, {1, 4, 4}}
+};
+
+static Vec3d IntersectRaySphere(Vec3d origin, Vec3d direction, Sphere sphere) {
+	Vec3d oc = Subtract(origin, sphere.center);
+
+	float k1 = DotProduct(direction, direction);
+	float k2 = 2 * DotProduct(oc, direction);
+	float k3 = DotProduct(oc, oc) - sphere.radius * sphere.radius;
+
+	float discriminant = k2 * k2 - 4 * k1 * k3;
+
+	if (discriminant < 0) {
+		return Vec3d{ INFINITY, INFINITY, INFINITY };
+	}
+
+	float t1 = (float)(-k2 + sqrt(discriminant)) / (2 * k1);
+	float t2 = (float)(-k2 - sqrt(discriminant)) / (2 * k1);
+
+	return Vec3d{ t1, t2, 0 };
+}
+
+static float ComputeLighting(Vec3d point, Vec3d normal, Vec3d view, float specular) {
+	float intensity = 0.0f;
 	float length_n = Length(normal);
 	float length_v = Length(view);
 
@@ -141,10 +157,10 @@ static double ComputeLighting(Vec3d point, Vec3d normal, Vec3d view, float specu
 			}
 
 			if (specular != -1) {
-				Vec3d vec_r = Subtract(Multiply(2.0 * DotProduct(normal, vec_l), normal), vec_l);
+				Vec3d vec_r = Subtract(Multiply(2.0f * DotProduct(normal, vec_l), normal), vec_l);
 				float r_dot_v = DotProduct(vec_r, view);
 				if (r_dot_v > 0) {
-					intensity += light.intensity * pow(r_dot_v / (Length(vec_r) * length_v), specular);
+					intensity += light.intensity * (float)pow(r_dot_v / (Length(vec_r) * length_v), specular);
 				}
 			}
 		}
@@ -178,10 +194,10 @@ static Color TraceRay(Vec3d origin, Vec3d direction, float min_t, float max_t) {
 
 	Vec3d point = Add(origin, Multiply(closest_t, direction));
 	Vec3d normal = Subtract(point, closest_sphere->center);
-	normal = Multiply(1.0 / Length(normal), normal);
+	normal = Multiply(1.0f / Length(normal), normal);
 
 	Vec3d view = Multiply(-1, direction);
-	double lighting = ComputeLighting(point, normal, view, closest_sphere->specular);
+	float lighting = ComputeLighting(point, normal, view, closest_sphere->specular);
 	return Multiply(lighting, closest_sphere->color);
 }
 
