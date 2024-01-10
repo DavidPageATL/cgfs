@@ -130,7 +130,34 @@ static Vec3d IntersectRaySphere(Vec3d origin, Vec3d direction, Sphere sphere) {
 	return Vec3d{ t1, t2, 0 };
 }
 
-static float ComputeLighting(Vec3d point, Vec3d normal, Vec3d view, float specular) {
+typedef struct {
+	Sphere* closest_sphere;
+	float closest_t;
+} Intersection;
+
+static Intersection ClosestIntersection(Vec3d origin, Vec3d direction, float min_t, float max_t) {
+	float closest_t = INFINITY;
+	Sphere* closest_sphere = NULL;
+
+	for (int i = 0; i < sizeof(spheres) / sizeof(spheres[0]); i++) {
+
+		Vec3d ts = IntersectRaySphere(origin, direction, spheres[i]);
+
+		if (ts.x < closest_t && min_t < ts.x && ts.x < max_t) {
+			closest_t = ts.x;
+			closest_sphere = &spheres[i];
+		}
+
+		if (ts.y < closest_t && min_t < ts.y && ts.y < max_t) {
+			closest_t = ts.y;
+			closest_sphere = &spheres[i];
+		}
+	}
+
+	return Intersection{ closest_sphere, closest_t };
+}
+
+static float ComputeLighting(Vec3d point, Vec3d normal, Vec3d view, float specular, float max_t) {
 	float intensity = 0.0f;
 	float length_n = Length(normal);
 	float length_v = Length(view);
@@ -151,11 +178,21 @@ static float ComputeLighting(Vec3d point, Vec3d normal, Vec3d view, float specul
 			else {
 				vec_l = light.position;
 			}
+
+			// Shadow
+			Intersection intersection = ClosestIntersection(point, vec_l, 0.001, max_t);
+
+			if (intersection.closest_sphere != NULL) {
+				continue;
+			}
+
+			// Diffuse
 			float n_dot_l = DotProduct(normal, vec_l);
 			if (n_dot_l > 0) {
 				intensity += light.intensity * n_dot_l / (length_n * Length(vec_l));
 			}
 
+			// Specular
 			if (specular != -1) {
 				Vec3d vec_r = Subtract(Multiply(2.0f * DotProduct(normal, vec_l), normal), vec_l);
 				float r_dot_v = DotProduct(vec_r, view);
@@ -170,35 +207,20 @@ static float ComputeLighting(Vec3d point, Vec3d normal, Vec3d view, float specul
 }
 
 static Color TraceRay(Vec3d origin, Vec3d direction, float min_t, float max_t) {
-	float closest_t = INFINITY;
-	Sphere* closest_sphere = NULL;
 
-	for (int i = 0; i < sizeof(spheres) / sizeof(spheres[0]); i++) {
+	Intersection intersection = ClosestIntersection(origin, direction, min_t, max_t);
 
-		Vec3d ts = IntersectRaySphere(origin, direction, spheres[i]);
-
-		if (ts.x < closest_t && min_t < ts.x && ts.x < max_t) {
-			closest_t = ts.x;
-			closest_sphere = &spheres[i];
-		}
-
-		if (ts.y < closest_t && min_t < ts.y && ts.y < max_t) {
-			closest_t = ts.y;
-			closest_sphere = &spheres[i];
-		}
-	}
-
-	if (closest_sphere == NULL) {
+	if (intersection.closest_sphere == NULL) {
 		return Color{ 255, 255, 255 };
 	}
 
-	Vec3d point = Add(origin, Multiply(closest_t, direction));
-	Vec3d normal = Subtract(point, closest_sphere->center);
+	Vec3d point = Add(origin, Multiply(intersection.closest_t, direction));
+	Vec3d normal = Subtract(point, intersection.closest_sphere->center);
 	normal = Multiply(1.0f / Length(normal), normal);
 
 	Vec3d view = Multiply(-1, direction);
-	float lighting = ComputeLighting(point, normal, view, closest_sphere->specular);
-	return Multiply(lighting, closest_sphere->color);
+	float lighting = ComputeLighting(point, normal, view, intersection.closest_sphere->specular, max_t);
+	return Multiply(lighting, intersection.closest_sphere->color);
 }
 
 static void PutPixel(SDL_Renderer* renderer, int x, int y, Color c) {
