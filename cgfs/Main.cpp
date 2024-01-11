@@ -241,7 +241,7 @@ static Color TraceRay(Vec3d origin, Vec3d direction, float min_t, float max_t, i
 
 	Color reflected_color = TraceRay(point, ray, 0.01f, INFINITY, recursion_depth - 1);
 
-	return Clamp(Add(Multiply(1 - r, local_color), Multiply(r, reflected_color)));
+	return Add(Multiply(1 - r, local_color), Multiply(r, reflected_color));
 }
 
 static void PutPixel(SDL_Renderer* renderer, int x, int y, Color c) {
