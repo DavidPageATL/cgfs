@@ -42,6 +42,7 @@ typedef struct {
 	float radius;
 	Color color;
 	float specular;
+	float reflective;
 } Sphere;
 
 enum LightType {
@@ -60,6 +61,10 @@ static float DotProduct(Vec3d v1, Vec3d v2) {
 
 static Vec3d Add(Vec3d v1, Vec3d v2) {
 	return Vec3d{ v1.x + v2.x, v1.y + v2.y, v1.z + v2.z };
+}
+
+static Color Add(Color c1, Color c2) {
+	return Color{ c1.r + c2.r, c1.g + c2.g, c1.b + c2.b };
 }
 
 static Vec3d Subtract(Vec3d v1, Vec3d v2) {
@@ -99,10 +104,10 @@ static Vec3d CanvasToViewport(int x, int y) {
 }
 
 static Sphere spheres[] = {
-	{{0, -1, 3}, 1, {255, 0, 0}, 500},
-	{{2, 0, 4}, 1, {0, 0, 255}, 500},
-	{{-2, 0,4}, 1, {0, 255, 0}, 10},
-	{{0, -5001, 0}, 5000, {255, 255, 0}, 1000}
+	{{0, -1, 3}, 1, {255, 0, 0}, 500, 0.2},
+	{{2, 0, 4}, 1, {0, 0, 255}, 500, 0.3},
+	{{-2, 0,4}, 1, {0, 255, 0}, 10, 0.4},
+	{{0, -5001, 0}, 5000, {255, 255, 0}, 1000, 0.5}
 };
 
 static Light lights[] = {
@@ -157,6 +162,10 @@ static Intersection ClosestIntersection(Vec3d origin, Vec3d direction, float min
 	return Intersection{ closest_sphere, closest_t };
 }
 
+static Vec3d ReflectRay(Vec3d ray, Vec3d normal) {
+	return Subtract(Multiply(2.0f * DotProduct(normal, ray), normal), ray);
+}
+
 static float ComputeLighting(Vec3d point, Vec3d normal, Vec3d view, float specular, float max_t) {
 	float intensity = 0.0f;
 	float length_n = Length(normal);
@@ -180,7 +189,7 @@ static float ComputeLighting(Vec3d point, Vec3d normal, Vec3d view, float specul
 			}
 
 			// Shadow
-			Intersection intersection = ClosestIntersection(point, vec_l, 0.001, max_t);
+			Intersection intersection = ClosestIntersection(point, vec_l, 0.01f, max_t);
 
 			if (intersection.closest_sphere != NULL) {
 				continue;
@@ -194,7 +203,7 @@ static float ComputeLighting(Vec3d point, Vec3d normal, Vec3d view, float specul
 
 			// Specular
 			if (specular != -1) {
-				Vec3d vec_r = Subtract(Multiply(2.0f * DotProduct(normal, vec_l), normal), vec_l);
+				Vec3d vec_r = ReflectRay(vec_l, normal);
 				float r_dot_v = DotProduct(vec_r, view);
 				if (r_dot_v > 0) {
 					intensity += light.intensity * (float)pow(r_dot_v / (Length(vec_r) * length_v), specular);
@@ -206,12 +215,12 @@ static float ComputeLighting(Vec3d point, Vec3d normal, Vec3d view, float specul
 	return intensity;
 }
 
-static Color TraceRay(Vec3d origin, Vec3d direction, float min_t, float max_t) {
+static Color TraceRay(Vec3d origin, Vec3d direction, float min_t, float max_t, int recursion_depth) {
 
 	Intersection intersection = ClosestIntersection(origin, direction, min_t, max_t);
 
 	if (intersection.closest_sphere == NULL) {
-		return Color{ 255, 255, 255 };
+		return Color{ 0, 0, 0 };
 	}
 
 	Vec3d point = Add(origin, Multiply(intersection.closest_t, direction));
@@ -220,7 +229,19 @@ static Color TraceRay(Vec3d origin, Vec3d direction, float min_t, float max_t) {
 
 	Vec3d view = Multiply(-1, direction);
 	float lighting = ComputeLighting(point, normal, view, intersection.closest_sphere->specular, max_t);
-	return Multiply(lighting, intersection.closest_sphere->color);
+	Color local_color = Multiply(lighting, intersection.closest_sphere->color);
+
+	float r = intersection.closest_sphere->reflective;
+
+	if (recursion_depth <= 0 || r <= 0) {
+		return local_color;
+	}
+
+	Vec3d ray = ReflectRay(view, normal);
+
+	Color reflected_color = TraceRay(point, ray, 0.01f, INFINITY, recursion_depth - 1);
+
+	return Clamp(Add(Multiply(1 - r, local_color), Multiply(r, reflected_color)));
 }
 
 static void PutPixel(SDL_Renderer* renderer, int x, int y, Color c) {
@@ -258,7 +279,7 @@ extern C_LINKAGE int SDL_main(int argc, char* argv[]) {
 	for (int x = -WIDTH / 2; x < WIDTH / 2; x++) {
 		for (int y = -HEIGHT / 2; y < HEIGHT / 2; y++) {
 			Vec3d direction = CanvasToViewport(x, y);
-			Color color = Clamp(TraceRay(camera_position, direction, 1, INFINITY));
+			Color color = Clamp(TraceRay(camera_position, direction, 1, INFINITY, 4));
 			PutPixel(renderer, x, y, color);
 		}
 	}
